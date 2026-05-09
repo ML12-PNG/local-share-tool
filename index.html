@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>三端互传</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        :root {
+            --bg: #f5f5f5;
+            --card: #ffffff;
+            --text: #1a1a1a;
+            --text-secondary: #888888;
+            --border: #e8e8e8;
+            --accent: #2b6ff2;
+            --accent-light: #e8f0fe;
+            --online: #34c759;
+            --radius: 12px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            height: 100vh;          /* 占满整个视口高度 */
+            color: var(--text);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: #f5f5f5;
+            display: flex;           /* 左右两栏布局 */
+            height: 100vh;
+        }
+
+        /* ========== 加入面板（单独居中覆盖） ========== */
+        #join-panel {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 24px;
+            text-align: center;
+            background: #ffffff;
+            z-index: 100;
+        }
+
+        #join-panel .app-icon { font-size: 48px; margin-bottom: 12px; }
+        #join-panel h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+        #join-panel .desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; }
+        .qr-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+        .qr-card img { width: 140px; height: 140px; border-radius: 8px; display: block; }
+        .session-code {
+            font-size: 24px; font-weight: 800; letter-spacing: 8px;
+            color: var(--text); margin-bottom: 20px;
+        }
+        .code-input-row {
+            display: flex; gap: 8px; width: 100%; max-width: 280px;
+        }
+        .code-input-row input {
+            flex: 1; padding: 12px 14px; border: 1.5px solid var(--border);
+            border-radius: 10px; font-size: 16px; text-align: center;
+            letter-spacing: 2px; outline: none;
+        }
+        .code-input-row input:focus { border-color: var(--accent); }
+        .btn {
+            background: var(--accent); color: #fff; border: none;
+            padding: 12px 20px; border-radius: 10px; font-size: 15px;
+            font-weight: 600; cursor: pointer; white-space: nowrap;
+            transition: opacity 0.2s;
+        }
+        .btn:active { opacity: 0.8; }
+        .btn.outline {
+            background: #fff; color: var(--accent); border: 1.5px solid var(--accent);
+        }
+        .btn.small { padding: 6px 14px; font-size: 13px; border-radius: 8px; }
+
+        /* ========== 左侧搜索栏 ========== */
+        .sidebar {
+            width: 240px;
+            min-width: 200px;
+            background: #fff;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            gap: 12px;
+            overflow-y: auto;
+        }
+
+        .sidebar h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .search-box {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .search-box input:focus {
+            border-color: var(--accent);
+        }
+
+        .search-results-sidebar {
+            flex: 1;
+            overflow-y: auto;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .search-results-sidebar ul {
+            list-style: none;
+        }
+
+        .search-results-sidebar li {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+
+        .search-results-sidebar li:last-child {
+            border-bottom: none;
+        }
+
+        .search-results-sidebar .highlight {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .no-results {
+            color: #bbb;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        /* ========== 右侧主区域 ========== */
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            gap: 10px;
+            overflow: hidden;
+        }
+
+        .online-bar {
+            background: #fff;
+            border-radius: var(--radius);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .online-dot {
+            width: 10px; height: 10px;
+            background: var(--online);
+            border-radius: 50%;
+        }
+
+        .online-bar .label { font-size: 13px; color: var(--text-secondary); }
+        .online-bar .devices { font-size: 13px; font-weight: 600; margin-left: auto; }
+
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .section-title h3 { font-size: 17px; font-weight: 700; }
+
+        .section-title .badge {
+            background: var(--accent-light);
+            color: var(--accent);
+            font-size: 11px; padding: 3px 8px;
+            border-radius: 20px; font-weight: 600;
+        }
+
+        .msg-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-height: 0;       /* 避免flex溢出 */
+        }
+
+        .msg-card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 10px 12px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+        }
+
+        .msg-card .row1 {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;
+        }
+
+        .msg-card .row1 .sender-name { font-weight: 600; color: var(--text); }
+
+        .msg-card .row2 {
+            font-size: 14px; color: var(--text); word-break: break-all;
+        }
+
+        .msg-card .row2 .file-name {
+            color: var(--accent); font-weight: 500; cursor: pointer;
+        }
+
+        .msg-card .row2 .file-name:hover { text-decoration: underline; }
+
+        .msg-card .row3 {
+            margin-top: 6px; display: flex; gap: 8px;
+        }
+
+        .pdf-link {
+            color: #34c759; font-size: 12px; font-weight: 600; cursor: pointer;
+        }
+
+        .empty-state {
+            text-align: center; padding: 40px 20px; color: #ccc; font-size: 40px;
+        }
+
+        .empty-state p { font-size: 13px; color: #aaa; margin-top: 8px; }
+
+        .upload-zone {
+            background: #fff;
+            border: 2px dashed var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            text-align: center;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .upload-zone:hover { border-color: var(--accent); }
+        .upload-zone .icon { font-size: 24px; margin-bottom: 2px; }
+        .upload-zone .hint { font-size: 12px; color: var(--text-secondary); }
+        .upload-zone .formats { font-size: 10px; color: #bbb; }
+        .upload-zone input[type="file"] { display: none; }
+
+        .bottom-input-row {
+            display: flex; gap: 8px; flex-shrink: 0;
+        }
+
+        .bottom-input-row input[type="text"] {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+            background: #fff;
+        }
+
+        .bottom-input-row input[type="text"]:focus { border-color: var(--accent); }
+
+        /* ========== 移动端适配：左侧栏变为底部弹窗（按需） ========== */
+        @media (max-width: 700px) {
+            .container {
+                flex-direction: column;
+                max-width: 100%;
+            }
+            .sidebar {
+                display: none;   /* 移动端默认隐藏，可加按钮调出 */
+                position: fixed;
+                bottom: 0; left: 0; right: 0;
+                height: 50vh;
+                width: 100%;
+                border-top-left-radius: 16px;
+                border-top-right-radius: 16px;
+                box-shadow: 0 -4px 12px rgba(0,0,0,0.1);
+                z-index: 50;
+                border-right: none;
+            }
+            .sidebar.active { display: flex; }
+            .main-area { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ========== 加入面板 ========== -->
+        <div id="join-panel">
+            <div class="app-icon">📁</div>
+            <h2>三端互传</h2>
+            <p class="desc">扫描二维码或输入验证码加入共享会话</p>
+            <div class="qr-card">
+                <img src="/qr" alt="二维码">
+            </div>
+            <div class="session-code">{{ session_code }}</div>
+            <div class="code-input-row">
+                <input type="text" id="code-input" maxlength="6" placeholder="输入6位码" autofocus>
+                <button class="btn" onclick="joinSession()">加入</button>
+            </div>
+        </div>
+
+        <!-- ========== 左侧搜索侧边栏 ========== -->
+        <div class="sidebar" id="sidebar">
+            <h4>🔍 搜索</h4>
+            <div class="search-box">
+                <input type="text" id="search-input-sidebar" placeholder="文件名或关键词" onkeyup="if(event.key==='Enter') searchFilesSidebar()">
+                <button class="btn small" style="width:100%;" onclick="searchFilesSidebar()">搜索</button>
+            </div>
+            <div class="search-results-sidebar" id="search-results-sidebar">
+                <div class="no-results">在左侧输入关键词搜索</div>
+            </div>
+            <!-- 移动端关闭按钮 -->
+            <button class="btn small outline" id="close-sidebar-btn" style="display:none; margin-top:auto;" onclick="toggleSidebar()">关闭</button>
+        </div>
+
+        <!-- ========== 右侧主区域 ========== -->
+        <div class="main-area" id="main-panel" style="display:none;">
+            <!-- 在线设备 -->
+            <div class="online-bar">
+                <div class="online-dot"></div>
+                <span class="label">在线设备</span>
+                <span class="devices" id="device-count">1 台在线</span>
+            </div>
+
+            <!-- 移动端搜索图标 -->
+            <div style="display:none; justify-content:flex-end;" id="mobile-search-btn">
+                <button class="btn small outline" onclick="toggleSidebar()">🔍 搜索</button>
+            </div>
+
+            <!-- 文件中心标题 -->
+            <div class="section-title">
+                <h3>📂 文件中心</h3>
+                <span class="badge">共享会话</span>
+            </div>
+
+            <!-- 消息列表 -->
+            <div class="msg-list" id="msg-list">
+                <div class="empty-state" id="empty-state">
+                    <div>📭</div>
+                    <p>上传文件后，所有在线设备将看到消息</p>
+                </div>
+            </div>
+
+            <!-- 上传区域 -->
+            <div class="upload-zone" onclick="document.getElementById('file-input').click()">
+                <div class="icon">☁️</div>
+                <div class="hint">点击上传文件</div>
+                <div class="formats">支持 Word / PDF / 图片 / PPT</div>
+                <input type="file" id="file-input" onchange="uploadFile()">
+            </div>
+
+            <!-- 文字输入 -->
+            <div class="bottom-input-row">
+                <input type="text" id="message-input" placeholder="输入文字消息..." onkeyup="if(event.key==='Enter') sendMessage()">
+                <button class="btn small" onclick="sendMessage()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const sessionCode = "{{ session_code }}";
+        let socket = null;
+        let deviceCount = 1;
+        let sidebarVisible = window.innerWidth > 700; // 大屏默认显示侧栏
+
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            if (code) {
+                document.getElementById('code-input').value = code;
+                setTimeout(() => joinSession(), 300);
+            }
+            handleSidebarVisibility();
+            window.addEventListener('resize', handleSidebarVisibility);
+        };
+
+        function handleSidebarVisibility() {
+            const sidebar = document.getElementById('sidebar');
+            const closeBtn = document.getElementById('close-sidebar-btn');
+            const mobileBtn = document.getElementById('mobile-search-btn');
+            if (window.innerWidth <= 700) {
+                // 移动端
+                sidebar.classList.remove('active');
+                sidebar.style.display = 'none';
+                closeBtn.style.display = 'block';
+                mobileBtn.style.display = 'flex';
+            } else {
+                // 桌面端
+                sidebar.style.display = 'flex';
+                sidebar.classList.remove('active');
+                closeBtn.style.display = 'none';
+                mobileBtn.style.display = 'none';
+            }
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            if (window.innerWidth <= 700) {
+                sidebar.classList.toggle('active');
+                sidebar.style.display = sidebar.classList.contains('active') ? 'flex' : 'none';
+            }
+        }
+
+        function joinSession() {
+            let code = document.getElementById('code-input').value.trim();
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('code') && !code) {
+                code = urlParams.get('code');
+            }
+            if (!code || code.length !== 6) {
+                alert('请输入6位数字会话码');
+                return;
+            }
+
+            socket = io();
+            socket.emit('join', { code: code });
+            socket.on('status', (data) => {
+                console.log(data.msg);
+            });
+            socket.on('new_message', (data) => {
+                addMessage(data);
+                deviceCount = Math.max(deviceCount, 2);
+                updateDeviceCount();
+            });
+
+            document.getElementById('join-panel').style.display = 'none';
+            document.getElementById('main-panel').style.display = 'flex';
+            if (window.innerWidth <= 700) {
+                handleSidebarVisibility(); // 确保移动端按钮出现
+            }
+        }
+
+        function updateDeviceCount() {
+            document.getElementById('device-count').textContent = deviceCount + ' 台在线';
+        }
+
+        function addMessage(data) {
+            const list = document.getElementById('msg-list');
+            const empty = document.getElementById('empty-state');
+            if (empty) empty.style.display = 'none';
+
+            const card = document.createElement('div');
+            card.className = 'msg-card';
+
+            let row2Html = '';
+            if (data.type === 'text') {
+                row2Html = data.content;
+            } else if (data.type === 'file') {
+                row2Html = `
+                    📎 <span class="file-name" onclick="downloadFile('${data.file_path}')">${data.content}</span>
+                `;
+            }
+
+            let row3Html = '';
+            if (data.type === 'file') {
+                row3Html = `<div class="row3">
+                    <span class="pdf-link" onclick="downloadPDF('${data.file_path}')">转为 PDF ↓</span>
+                </div>`;
+            }
+
+            card.innerHTML = `
+                <div class="row1">
+                    <span class="sender-name">${data.sender || '设备'}</span>
+                    <span>${data.timestamp || ''}</span>
+                </div>
+                <div class="row2">${row2Html}</div>
+                ${row3Html}
+            `;
+
+            list.appendChild(card);
+            list.scrollTop = list.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const msg = input.value.trim();
+            if (!msg || !socket) return;
+            socket.emit('chat_message', { message: msg });
+            input.value = '';
+        }
+
+        function uploadFile() {
+            const fileInput = document.getElementById('file-input');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/upload', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        fileInput.value = '';
+                    } else {
+                        alert('上传失败');
+                    }
+                })
+                .catch(err => alert('上传失败: ' + err));
+        }
+
+        function downloadFile(filename) {
+            window.open('/download/' + encodeURIComponent(filename), '_blank');
+        }
+
+        function downloadPDF(filename) {
+            window.open('/pdf/' + encodeURIComponent(filename), '_blank');
+        }
+
+        // 侧边搜索功能
+        function searchFilesSidebar() {
+            const query = document.getElementById('search-input-sidebar').value.trim();
+            const container = document.getElementById('search-results-sidebar');
+            if (!query) {
+                container.innerHTML = '<div class="no-results">在左侧输入关键词搜索</div>';
+                return;
+            }
+            fetch('/search?q=' + encodeURIComponent(query))
+                .then(res => res.json())
+                .then(results => {
+                    if (!results.length) {
+                        container.innerHTML = '<div class="no-results">未找到匹配项</div>';
+                        return;
+                    }
+                    let html = '<ul>';
+                    results.forEach(item => {
+                        html += '<li>';
+                        if (item.type === 'file') {
+                            html += '📎 <span class="highlight" onclick="downloadFile(\'' + item.file_path + '\')">' + item.content + '</span>';
+                        } else {
+                            html += item.sender + ': ' + item.content;
+                        }
+                        html += ' <span style="color:#bbb;font-size:10px;">' + item.timestamp + '</span>';
+                        html += '</li>';
+                    });
+                    html += '</ul>';
+                    container.innerHTML = html;
+                })
+                .catch(err => {
+                    container.innerHTML = '<div class="no-results">搜索出错</div>';
+                });
+        }
+    </script>
+</body>
+</html>
