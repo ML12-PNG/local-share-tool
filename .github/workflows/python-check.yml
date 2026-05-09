@@ -1,0 +1,43 @@
+name: Python代码检查
+
+# 什么时候触发：每次推送代码或发起Pull Request时
+on: [push, pull_request]
+
+jobs:
+  # 任务名称
+  lint-and-test:
+    # 在最新版Ubuntu虚拟机上运行
+    runs-on: ubuntu-latest
+
+    steps:
+      # 第一步：把代码下载到虚拟机上
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 第二步：安装Python环境
+      - name: 设置Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 第三步：安装代码风格检查工具
+      - name: 安装flake8
+        run: pip install flake8
+
+      # 第四步：检查代码是否符合规范
+      - name: 代码风格检查
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      # 第五步：安装项目依赖
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # 第六步：尝试运行应用（确保它能启动）
+      - name: 测试应用启动
+        run: |
+          # 后台启动应用，等5秒看看会不会崩溃
+          timeout 5s python app.py &
+          sleep 5
+          echo "应用启动成功"
